@@ -1,0 +1,145 @@
+@host = http://localhost:5299
+
+### Seed CS301 — capacity 2, prerequisite CS101
+POST {{host}}/courses
+Content-Type: application/json
+
+{ "courseId": "CS301", "capacity": 2, "prerequisiteCourseId": "CS101" }
+
+### Seed CS302 — capacity 1, prerequisite MATH101
+POST {{host}}/courses
+Content-Type: application/json
+
+{ "courseId": "CS302", "capacity": 1, "prerequisiteCourseId": "MATH101" }
+
+### Seed learners
+POST {{host}}/learners
+Content-Type: application/json
+
+{ "learnerId": "Alice", "completedCourses": ["CS101"] }
+
+###
+POST {{host}}/learners
+Content-Type: application/json
+
+{ "learnerId": "Bob", "completedCourses": ["CS101"] }
+
+###
+POST {{host}}/learners
+Content-Type: application/json
+
+{ "learnerId": "Carol", "completedCourses": [] }
+
+###
+POST {{host}}/learners
+Content-Type: application/json
+
+{ "learnerId": "Dave", "completedCourses": ["CS101"] }
+
+###
+POST {{host}}/learners
+Content-Type: application/json
+
+{ "learnerId": "Erin", "completedCourses": [] }
+
+### Step 1 — Expect: 201, Enrolled
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Alice" }
+
+### Step 2 — Expect: 201, Enrolled (course now full 2/2)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Bob" }
+
+### Step 3 — Expect: 201, Waitlisted (full, Carol ineligible, gate-at-the-seat)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Carol" }
+
+### Step 4 — Expect: 201, Waitlisted
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Dave" }
+
+### Step 5 — Expect: 409 Conflict (Alice already enrolled)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Alice" }
+
+### Step 6 — Expect: 409 Conflict (Carol already waitlisted)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Carol" }
+
+### Check status before drop — Expect: enrolled=[Alice,Bob], waitlist=[Carol,Dave]
+GET {{host}}/courses/CS301/status
+
+### Step 7 — Drop Alice. Expect: Dropped; Dave promoted (Carol skipped, stays waitlisted)
+DELETE {{host}}/enrollments/CS301/Alice
+
+### Check status after drop 1 — Expect: enrolled=[Bob,Dave], waitlist=[Carol]
+GET {{host}}/courses/CS301/status
+
+### Step 8 — Carol completes the prerequisite while waiting — Expect: 200
+PATCH {{host}}/learners/Carol
+Content-Type: application/json
+
+{ "completedCourses": ["CS101"] }
+
+### Step 9 — Drop Bob. Expect: Dropped; Carol now promoted (now eligible)
+DELETE {{host}}/enrollments/CS301/Bob
+
+### Check status after drop 2 — Expect: enrolled=[Dave,Carol], waitlist=[] (full again, 2/2)
+GET {{host}}/courses/CS301/status
+
+### Step 10 — Enroll Erin, course full again, Erin ineligible — Expect: 201, Waitlisted (gate-at-the-seat)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Erin" }
+
+### Step 11 — Erin voluntarily drops off the waitlist before promotion — Expect: 200, Dropped
+DELETE {{host}}/enrollments/CS301/Erin
+
+### Step 12 — Drop Erin again — Expect: 404 (no record left)
+DELETE {{host}}/enrollments/CS301/Erin
+
+### Step 13 — Drop Frank, who was never enrolled or waitlisted — Expect: 404
+DELETE {{host}}/enrollments/CS301/Frank
+
+### Step 14 — Enroll Erin into CS302, capacity available, prerequisite unmet — Expect: 422
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS302", "learnerId": "Erin" }
+
+### Step 15 — Enroll Grace (never seeded) into CS301 — Expect: 404 (learner not found)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS301", "learnerId": "Grace" }
+
+### Step 16 — Enroll Dave into CS999 (never seeded course) — Expect: 404 (course not found)
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "CS999", "learnerId": "Dave" }
+
+### Step 17 — Malformed body (missing courseId) — Expect: 400
+POST {{host}}/enrollments
+Content-Type: application/json
+
+{ "courseId": "", "learnerId": "Dave" }
+
+### Final status check for CS301 — Expect: enrolled=[Dave,Carol], waitlist=[]
+GET {{host}}/courses/CS301/status
+
+### Final status check for CS302 — Expect: enrolled=[], waitlist=[]
+GET {{host}}/courses/CS302/status
